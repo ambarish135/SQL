@@ -1,0 +1,393 @@
+/*
+	Instructions:
+	
+	Create T-SQL scripts to create a datawarehouse schema and import data
+	
+	Task 1: Create Datawarehouse schema
+	
+		Write a set of script to crete a schema:
+
+		Reports
+
+		Create a datawarehouse schema consisting of 7 tables:
+
+		Facts:
+			Reports.factOrdersByDay
+				DateID
+				CustomerID
+				EmployeeID
+				ProductID
+				CategoryID
+				Quantity
+				Amount
+				
+			Reports.factOrdersByMonth
+				DateID
+				CustomerID
+				EmployeeID
+				ProductID
+				CategoryID
+				Quantity
+				Amount
+				
+		Dimenstions:
+			Reports.dimCustomer
+				ID
+				Name
+				Country
+
+			Reports.dimEmployee
+				ID
+				Name
+				Country
+
+			Reports.dimProduct
+				ID
+				Name
+
+			Reports.dimCategory
+				ID
+				Name
+
+			Reports.dimDate	*
+				[ID]
+				[Date]
+				[Year]
+				[Quarter]
+				[Month]
+				[Day]
+
+	
+
+		-- Check if New schema "Reports" exists in the DB
+
+-- If not exist - create
+IF NOT EXISTS(
+				SELECT	1
+				FROM	INFORMATION_SCHEMA.SCHEMATA
+				WHERE	[SCHEMA_NAME] = 'Reports'
+			)
+EXEC ('CREATE SCHEMA [Reports]')
+GO
+
+-- Clean up - DROP existing objects
+-- Drop Fact tables first - foreign keys
+IF OBJECT_ID('Reports.factOrdersByDay') IS NOT NULL
+	DROP TABLE Reports.factOrdersByDay;
+GO
+IF OBJECT_ID('Reports.factOrdersByMonth') IS NOT NULL
+	DROP TABLE Reports.factOrdersByMonth;
+GO
+-- Drop the dimentions
+IF OBJECT_ID('Reports.dimCustomer') IS NOT NULL
+	DROP TABLE Reports.dimCustomer;
+GO
+IF OBJECT_ID('Reports.dimEmployee') IS NOT NULL
+	DROP TABLE Reports.dimEmployee;
+GO
+IF OBJECT_ID('Reports.dimProduct') IS NOT NULL
+	DROP TABLE Reports.dimProduct;
+GO
+IF OBJECT_ID('Reports.dimCategory') IS NOT NULL
+	DROP TABLE Reports.dimCategory;
+GO
+IF OBJECT_ID('Reports.dimDate') IS NOT NULL
+	DROP TABLE Reports.dimDate;
+GO
+-- Creating Dimension tables
+
+IF OBJECT_ID('Reports.dimCustomer') IS NULL
+	CREATE TABLE Reports.dimCustomer
+		(
+			ID		INT				NOT NULL CONSTRAINT PK_dimCustomer_ID PRIMARY KEY CLUSTERED,
+			Name	NVARCHAR(40)	NOT NULL,
+			Country	NVARCHAR(15)	NOT NULL
+		);
+	PRINT 'Reports.dimCustomer created...'
+	GO
+
+IF OBJECT_ID('Reports.dimEmployee') IS NULL
+	CREATE TABLE Reports.dimEmployee
+		(
+			ID		INT				NOT NULL CONSTRAINT PK_dimEmployee_ID PRIMARY KEY CLUSTERED,
+			Name	NVARCHAR(31)	NOT NULL,
+			Country	NVARCHAR(15)	NOT NULL
+		);
+	PRINT 'Reports.dimEmployee created...'
+	GO
+
+IF OBJECT_ID('Reports.dimProduct') IS NULL
+	CREATE TABLE Reports.dimProduct
+		(
+			ID		INT				NOT NULL CONSTRAINT PK_dimProduct_ID PRIMARY KEY CLUSTERED,
+			Name	NVARCHAR(40)	NOT NULL
+		);
+	PRINT 'Reports.dimProduct created...'
+	GO
+
+IF OBJECT_ID('Reports.dimCategory') IS NULL
+	CREATE TABLE Reports.dimCategory
+		(
+			ID		INT				NOT NULL CONSTRAINT PK_dimCategory_ID PRIMARY KEY CLUSTERED,
+			Name	NVARCHAR(15)	NOT NULL
+		);
+	PRINT 'Reports.dimCategory created...'
+	GO
+
+IF OBJECT_ID('Reports.dimDate') IS NULL
+BEGIN
+	CREATE TABLE Reports.dimDate
+
+		(
+			[ID]		INT			NOT NULL CONSTRAINT PK_dimDate_ID PRIMARY KEY CLUSTERED,
+			[Date]		DATE		NOT NULL,
+			[Year]		SMALLINT	NOT NULL,
+			[Quarter]	TINYINT		NOT NULL,
+			[Month]		TINYINT		NOT NULL,
+			[Day]		TINYINT		NOT NULL
+		);
+	PRINT 'Reports.dimDate created...'
+	-- Insert date values
+	INSERT INTO Reports.dimDate(ID,Date,Year,[Quarter],[Month],[Day])
+	SELECT	CONVERT(INT,FORMAT(z.DateID,'yyyyMMdd'))	AS [ID],
+			z.DateID									AS [Date],
+			YEAR(z.DateID)								AS [Year],
+			DATEPART(QUARTER,z.DateID)					AS [Quarter],
+			MONTH(z.DateID)								AS [Month],
+			DAY(z.DateID)								AS [Day]	
+	FROM (
+	SELECT d AS DateID
+	FROM
+	(
+		SELECT d = DATEADD(DAY, rn - 1, '2000-01-01')
+		FROM 
+		(
+		SELECT	TOP (DATEDIFF(DAY, '2000-01-01', '2010-01-01')) 
+				rn = ROW_NUMBER() OVER (ORDER BY s1.[object_id])
+		FROM	sys.all_objects AS s1
+				CROSS JOIN 
+				sys.all_objects AS s2
+		ORDER BY s1.[object_id]
+		) AS x
+	) AS y
+	) z
+END;
+GO
+--Creating Fact tables
+
+IF OBJECT_ID('Reports.factOrdersByDay') IS NULL
+BEGIN
+	CREATE TABLE Reports.factOrdersByDay
+		(
+			DateID		INT NOT NULL	CONSTRAINT FK_factOrdersByDay_DateID		FOREIGN KEY REFERENCES Reports.dimDate([ID]),
+			CustomerID	INT	NOT NULL	CONSTRAINT FK_factOrdersByDay_CustomerID	FOREIGN KEY REFERENCES Reports.dimCustomer([ID]),
+			EmployeeID	INT	NOT NULL	CONSTRAINT FK_factOrdersByDay_EmployeeID	FOREIGN KEY REFERENCES Reports.dimEmployee([ID]),
+			ProductID	INT	NOT NULL	CONSTRAINT FK_factOrdersByDay_ProductID		FOREIGN KEY REFERENCES Reports.dimProduct([ID]),
+			CategoryID	INT	NOT NULL	CONSTRAINT FK_factOrdersByDay_CategoryID	FOREIGN KEY REFERENCES Reports.dimCategory([ID]),
+			Quantity	INT	NULL,
+			Amount		DECIMAL(18,2)
+		);
+	ALTER TABLE Reports.factOrdersByDay
+		ADD CONSTRAINT PK_factOrdersByDay PRIMARY KEY (DateID,CustomerID,EmployeeID,ProductID,CategoryID);
+	PRINT 'Reports.factOrdersByDay created...'
+END
+GO
+
+IF OBJECT_ID('Reports.factOrdersByMonth') IS NULL
+BEGIN
+	CREATE TABLE Reports.factOrdersByMonth
+		(
+			DateID		INT NOT NULL	CONSTRAINT FK_factOrdersByMonth_DateID		FOREIGN KEY REFERENCES Reports.dimDate([ID]),
+			CustomerID	INT	NOT NULL	CONSTRAINT FK_factOrdersByMonth_CustomerID	FOREIGN KEY REFERENCES Reports.dimCustomer([ID]),
+			EmployeeID	INT	NOT NULL	CONSTRAINT FK_factOrdersByMonth_EmployeeID	FOREIGN KEY REFERENCES Reports.dimEmployee([ID]),
+			ProductID	INT	NOT NULL	CONSTRAINT FK_factOrdersByMonth_ProductID	FOREIGN KEY REFERENCES Reports.dimProduct([ID]),
+			CategoryID	INT	NOT NULL	CONSTRAINT FK_factOrdersByMonth_CategoryID	FOREIGN KEY REFERENCES Reports.dimCategory([ID]),
+			Quantity	INT	NULL,
+			Amount		DECIMAL(18,2)
+		);
+
+	ALTER TABLE Reports.factOrdersByMonth
+		ADD CONSTRAINT PK_factOrdersByMonth PRIMARY KEY (DateID,CustomerID,EmployeeID,ProductID,CategoryID);
+	PRINT 'Reports.factOrdersByMonth created...'
+END
+GO
+
+
+
+
+
+
+
+	Task 2: Create ETL process using T-SQL
+		
+		Write a SQL script to load data to fact and dimention tables using "Truncate and Load" aproach
+
+
+
+*/
+-- Check if stored procedure "Reports.pLoadDatawarehouse" exists in the DB
+-- If not exist - create
+IF NOT EXISTS(
+				SELECT	1
+				FROM	INFORMATION_SCHEMA.ROUTINES
+				WHERE	ROUTINE_NAME = 'pLoadDatawarehouse'
+						AND
+						ROUTINE_SCHEMA = 'Reports'
+			)
+EXEC ('CREATE PROCEDURE [Reports].[pLoadDatawarehouse] AS SELECT 1')
+GO
+ALTER PROCEDURE Reports.pLoadDatawarehouse
+AS
+SET NOCOUNT ON;
+-- Load Dimentions
+
+
+DECLARE @RowCount INT
+-- Load dimCategory
+IF (SELECT COUNT(*) FROM  Reports.dimCategory) > 0
+	TRUNCATE TABLE Reports.dimCategory
+
+INSERT INTO Reports.dimCategory(ID,Name)
+SELECT	pc.categoryid,
+		pc.categoryname
+FROM	Production.Categories pc;
+SELECT @RowCount = @@ROWCOUNT;
+PRINT 'Inserted ' + CONVERT(VARCHAR(10),@RowCount) + ' records in to  table Reports.dimCategory';
+
+--IF OBJECT_ID('tempdb..#Categories') IS NOT NULL
+--	DROP TABLE #Categories
+
+--DECLARE	@Latest DATETIME;
+--SELECT	@Latest = ISNULL(LastDate,'2000-01-01') FROM Reports.LoadInfo WHERE TableName = 'Reports.dimCategory'
+
+--SELECT	pc.categoryid,
+--		pc.categoryname,
+--		pc.ModifiedOn
+--INTO	#Categories
+--FROM	Production.Categories pc
+--WHERE	pc.ModifiedOn > @Latest;
+
+--IF (SELECT COUNT(*) FROM #Categories) > 0
+--	BEGIN
+
+--		UPDATE	dc
+--		SET		dc.Name = c.CategoryName
+--		FROM	Reports.dimCategory dc
+--				INNER JOIN
+--				#Categories c	ON	dc.ID = c.categoryid;
+--		SELECT @RowCount = @@ROWCOUNT;
+--		PRINT 'Updated ' + CONVERT(VARCHAR(10),@RowCount) + ' records in to  table Reports.dimCategory';
+
+--		INSERT INTO Reports.dimCategory(ID,Name)
+--		SELECT	c.categoryid	AS ID,
+--				c.categoryname	AS	Name
+--		FROM	#Categories c
+--				LEFT OUTER JOIN
+--				Reports.dimCategory dc ON	dc.ID = c.categoryid
+--		WHERE	dc.ID IS NULL
+--		SELECT @RowCount = @@ROWCOUNT;
+--		PRINT 'Inserted ' + CONVERT(VARCHAR(10),@RowCount) + ' records in to  table Reports.dimCategory';
+
+--		-- Update LoadInfo table
+--		DECLARE @Var DATETIME 
+--		SELECT  @Var = MAX(ModifiedOn) FROM #Categories
+--		UPDATE	Reports.LoadInfo
+--		SET		LastDate = @Var
+--		WHERE	TableName = 'Reports.dimCategory'
+--	END
+
+-- Load dimCustomer
+IF (SELECT COUNT(*) FROM  Reports.dimCustomer) > 0
+	TRUNCATE TABLE Reports.dimCustomer
+
+INSERT INTO Reports.dimCustomer(ID,Name,Country)
+SELECT	sc.custid,
+		sc.companyname,
+		sc.country
+FROM	Sales.Customers sc;
+SELECT @RowCount = @@ROWCOUNT;
+PRINT 'Inserted ' + CONVERT(VARCHAR(10),@RowCount) + ' records in to  table Reports.dimCustomer';
+
+-- Load dimEmployee
+IF (SELECT COUNT(*) FROM  Reports.dimEmployee) > 0
+	TRUNCATE TABLE Reports.dimEmployee
+
+INSERT INTO Reports.dimEmployee(ID,Name,Country)
+SELECT	e.empid								AS ID,
+		CONCAT(e.firstname,N' ',e.lastname) AS Name,
+		e.country							AS Country
+FROM	HR.Employees e;
+SELECT @RowCount = @@ROWCOUNT;
+PRINT 'Inserted ' + CONVERT(VARCHAR(10),@RowCount) + ' records in to  table Reports.dimEmployee';
+
+-- Load dimProduct
+IF (SELECT COUNT(*) FROM  Reports.dimProduct) > 0
+	TRUNCATE TABLE Reports.dimProduct
+
+INSERT INTO Reports.dimProduct(ID,Name)
+SELECT	pp.productid	AS ID,
+		pp.productname	AS Name
+FROM	Production.Products pp;
+SELECT @RowCount = @@ROWCOUNT;
+PRINT 'Inserted ' + CONVERT(VARCHAR(10),@RowCount) + ' records in to  table Reports.dimProduct';
+
+-- Load Facts
+-- Load Reports.factOrdersByDay
+IF (SELECT COUNT(*) FROM  Reports.factOrdersByDay) > 0
+	TRUNCATE TABLE Reports.factOrdersByDay;
+
+INSERT INTO Reports.factOrdersByDay(DateID, CustomerID, EmployeeID, ProductID, CategoryID, Quantity, Amount)
+SELECT	CONVERT(INT,FORMAT(o.orderdate,'yyyyMMdd')),
+		o.custid,
+		o.empid,
+		od.productid,
+		pp.categoryid,
+		SUM(od.qty)			AS	Quantity,
+		SUM(od.UnitPrice)	AS	Amount
+FROM	Sales.Orders o
+		INNER JOIN
+		Sales.OrderDetails od	ON	o.orderid = od.orderid
+		INNER JOIN
+		Production.Products pp	ON	od.productid = pp.productid
+GROUP BY
+		o.orderdate,
+		o.custid,
+		o.empid,
+		od.productid,
+		pp.categoryid;
+SELECT @RowCount = @@ROWCOUNT;
+PRINT 'Inserted ' + CONVERT(VARCHAR(10),@RowCount) + ' records in to  table Reports.factOrdersByDay';
+
+-- Load Reports.factOrdersByMonth
+IF (SELECT COUNT(*) FROM  Reports.factOrdersByMonth) > 0
+	TRUNCATE TABLE Reports.factOrdersByMonth;
+INSERT INTO Reports.factOrdersByMonth(DateID, CustomerID, EmployeeID, ProductID, CategoryID, Quantity, Amount)
+SELECT	dim.ID	AS DateID,
+		ft.CustomerID,
+		ft.EmployeeID,
+		ft.ProductID,
+		ft.CategoryID,
+		SUM(ft.Quantity)	AS	Quantity,
+		SUM(ft.Amount)		AS	Amount
+FROM	Reports.factOrdersByDay ft
+		INNER JOIN
+		Reports.dimDate dd ON	ft.DateID = dd.ID
+		INNER JOIN
+		(
+			SELECT	d.ID,d.Month,d.Year
+			FROM	Reports.dimDate d
+			WHERE	d.Day = 1
+			GROUP BY d.ID,d.Month,d.Year
+		)	dim				ON	dd.Month = dim.Month
+								AND
+								dd.Year = dim.Year
+
+GROUP BY dim.ID,
+		ft.CustomerID,
+		ft.EmployeeID,
+		ft.ProductID,
+		ft.CategoryID;
+SELECT @RowCount = @@ROWCOUNT;
+PRINT 'Inserted ' + CONVERT(VARCHAR(10),@RowCount) + ' records in to  table Reports.factOrdersByMonth';
+
+
