@@ -64,7 +64,7 @@
 
 
 
-	PArt 2: Create ETL process using T-SQL
+	Part 2: Create ETL process using T-SQL
 		
 		Write a SQL script to load data to fact and dimention tables using "Truncate and Load" aproach
 
